@@ -1,173 +1,5 @@
 # Figr — Frontend Engineer Assignment
 
-Role and brief: [doc.figr.design/frontend-engineer](https://doc.figr.design/frontend-engineer) · Submit: [join.figr.design/r/kdqVkj](https://join.figr.design/r/kdqVkj)
-
-## Setting
-
-You're building the viewer for a design tool. A board shows live previews of web pages. Each preview is an `<iframe>` showing a page served from a **different origin** than your app. Users point at elements inside any preview. Your app, the page that contains the previews (the "host"), draws the outlines and labels on top of each preview. It also shows a layers panel and an inspector for whatever is selected.
-
-Use any framework, language, library, AI tool or workflow you like.
-
-## What's in this kit
-
-```
-backend/
-  server.js        mock API (:4000) and page server (:4001), no dependencies
-  data/            screens.json, elements.json
-  pages/           the preview pages
-frontend/
-  report.js        error reporter stub
-```
-
-Run the backend with Node 18+:
-
-```
-npm run backend
-```
-
-- **Pages** at `http://localhost:4001`: `page-1.html` to `page-6.html`, plus `page-6-next.html`, which page 6 links to. You may add **one `<script>` tag** to each page. You may not change anything else in them.
-- **API** at `http://localhost:4000`. Every route accepts `?latency=<ms>&fail=<0..1>`. A failed request returns either a 5xx or a 200 with a malformed body.
-  - `GET /screens` returns `[{ id, name, url }]`: 24 screens, which reuse the 6 pages.
-  - `GET /elements/:key` returns `{ component, description, status, owner }` for elements that carry a `data-key` attribute. It returns `404` when there are no details for that key.
-- **`report(error, context)`** in `frontend/report.js`: a stub error reporter that logs every call.
-
-Build your app in `frontend/`, or anywhere else in the repo.
-
-## Terms
-
-- **Preview**: one iframe on the board.
-- **Element**: any element inside a preview's page except `<html>` and `<body>`.
-- **Active preview**: the preview the user last clicked in Select mode. The layers panel and inspector show the active preview.
-- **Name**: an element's `data-name` if it has one, otherwise tag plus first class (`button.primary`) or tag plus id (`div#hero`), otherwise the tag alone.
-
-## Requirements
-
-### R1: Board
-
-1. Show every screen from `GET /screens` as a preview, 1280×800 each, in a grid, with the screen name above it.
-2. Dragging empty board space pans the board. The wheel over empty board space pans too.
-3. **Ctrl/Cmd + wheel** zooms the board from 25% to 400%, centred on the pointer. This works **wherever the pointer is, including over a preview**.
-4. The wheel over a preview scrolls that page, in both modes.
-5. Two modes, switched from a toolbar toggle and the **V** key (Select) and **I** key (Interact):
-   - **Select mode** (default): clicks select elements and never reach the page. Links don't navigate, buttons don't act, inputs don't get focus, forms don't submit.
-   - **Interact mode**: the page behaves normally and no outlines are drawn.
-     - The selection is kept but hidden, and it reappears when switching back to Select mode if the elements still exist.
-     - The layers panel keeps updating as the page changes.
-
-### R2: Hover (Select mode)
-
-1. When the pointer is over an element, draw a **1px outline** exactly on that element's box, with a label showing its name.
-2. Only one element on the whole board is hovered at a time.
-3. Hover clears when the pointer leaves the preview or the window, or when the board starts panning or zooming.
-4. **Every** element can be hovered and selected, including disabled buttons and inputs, images, SVG, and elements under a sticky header.
-5. Page background (`<html>` / `<body>`) is never hovered. Pointing at it shows nothing.
-
-### R3: Selection
-
-1. Clicking selects the element under the pointer. Selected elements get a **2px outline** in a different colour from hover, plus a label.
-2. **Shift + click** adds or removes an element in the same preview. Shift + click in a different preview replaces the selection with that element.
-3. **Escape**, clicking page background, or clicking empty board space clears the selection.
-4. Outlines and labels:
-   - stay glued to their element while the user pans, zooms, scrolls inside the page (including scroll areas inside the page), resizes the window, or the element changes size or moves;
-   - stay 1px or 2px thick and keep the same label size at every zoom level;
-   - are clipped to the preview's edges. An element scrolled fully out of view has no outline but stays selected;
-   - put the label below the element when there's no room above it inside the preview.
-5. **Keyboard.** When several elements are selected, each of these keys acts on the most recently selected one and replaces the selection with the result.
-   - **Enter** selects the first child.
-   - **Shift + Enter** selects the parent. Nothing happens at the top level.
-   - **Tab / Shift + Tab** selects the next or previous sibling, wrapping around.
-6. **All shortcuts** (V, I, Escape, Enter, Tab, and so on) work even right after the user clicked inside a preview.
-7. **The page re-renders itself:**
-   - A selected element that still exists stays selected, even if the page rebuilt its DOM nodes or inserted new siblings before it.
-   - A selected element that no longer exists is removed from the selection. If nothing remains selected, the inspector says **"This element no longer exists"** until the next selection.
-   - The selection must never jump to a different element. If your approach can't guarantee this in some case, say which case in your README.
-8. **A page navigates** (a link followed in Interact mode):
-   - That preview's selection clears.
-   - Select mode works on the new page with no reload of the board.
-   - The layers panel shows the new page.
-
-### R4: Layers panel
-
-1. It shows the element tree of the active preview. With no active preview, it shows "Click something in a preview".
-2. Each row shows indentation, the element's name, and a chevron if the element has children. Top-level rows are the children of `<body>`.
-3. **Children load when a row is first expanded.** While loading, the row shows a loading state. If the page doesn't answer within 3 seconds, the row shows "Couldn't load" with a retry on that row only.
-   - Collapsing and re-expanding a row, including while it's still loading, must never produce duplicate or missing children.
-4. **Hover sync, both directions:**
-   - Hovering a row draws the hover outline on that element in the preview.
-   - Hovering an element in the preview highlights its row. If that row is inside a collapsed parent, highlight the nearest visible ancestor row instead. Hover never expands anything.
-5. **Selection sync, both directions:**
-   - Clicking a row selects that element.
-   - Selecting an element in the preview expands every ancestor of its row (loading them if needed, even many levels deep), highlights the row, and scrolls the panel to show it.
-6. Clicking a row whose element is out of view inside the page scrolls **only that page** to show the element. The board and the host page don't move.
-7. **Multi-select:** Shift + click on a row adds or removes it, and all selected rows are highlighted.
-8. **Keyboard while the panel has focus:**
-   - **↑ / ↓** select the previous or next visible row.
-   - **→** expands a row, or moves to its first child if it's already expanded.
-   - **←** collapses a row, or moves to its parent if it's already collapsed.
-9. **Expanded rows and panel scroll position are remembered per preview.** Switching the active preview to B and back to A restores A exactly as it was left, until A's page navigates or the board reloads.
-10. **When the page changes its own DOM, the tree updates to match:**
-    - Rows that still exist keep their expanded state and selection.
-    - Removed rows disappear, and a removed hovered row clears the hover.
-    - Rows the user is looking at don't jump. The scroll position holds steady.
-11. **Search box:**
-    - Typing shows only rows whose name contains the text, together with their ancestors.
-    - Search covers the whole tree, including rows never loaded.
-    - Clearing the search restores exactly the expanded state from before the search.
-    - Selecting a search result selects the element and keeps the search open.
-
-### R5: Inspector
-
-1. With **one** element selected, it has two sections:
-   - **Live** (read from the page): name, tag, id, classes, width × height (px, rounded), position within the page, the first 120 characters of text, text colour, background colour, font family, size and weight. Values update when the element changes.
-   - **Details** (from `GET /elements/:key`): component, description, status, owner.
-     - An element with no `data-key` shows "No details".
-     - A `404` shows "No details for this element". A 404 is not an error.
-2. With **several** elements selected, it shows "N elements", and each Live field shows either the value they all share or "Mixed". There is no Details section.
-3. When the selection changes while Details are loading, only the latest selection's details are ever shown.
-
-### R6: Failures
-
-1. **Regions.** Each of these is its own region: the board, each preview, the layers panel, each row's child loading, and the inspector's Details section.
-2. **A failure in a region shows an error with a Retry button in that region only.** Everything else keeps working.
-   - `GET /screens` fails → the board shows the error.
-   - A preview's page doesn't load, or its script doesn't respond within 10 seconds → "Couldn't connect to this preview" on that preview only.
-   - `GET /elements/:key` fails or returns bad data → error in Details only. Live values still show.
-   - A render error in the inspector → the inspector shows the error. The board and the layers panel keep working.
-3. **Errors inside a page** are shown as a small "Page error" badge on that preview. Hovering the badge shows the message.
-4. **Reporting:**
-   - Every failure reaches `report()` **exactly once**, with `{ region, screenId, elementKey? }`.
-   - A retry that fails again counts as a new failure.
-   - A request that was cancelled or replaced because the user moved on is **not** a failure: no error is shown and nothing is reported.
-5. **Where an error happens doesn't matter.** An error thrown while drawing, handling a click or key, handling a message from a preview, in a timer, or when a response arrives gets the same region error and the same single report.
-6. **A response or error that arrives after its region is gone** changes nothing and reports nothing.
-7. **A dev-only menu** can trigger each of these failures on demand, for the video.
-
-### Out of scope
-
-Editing pages, saving anything across a reload, auth, mobile, and more than one user.
-
-## Deliverables
-
-1. **A public GitHub repo** that runs the backend and your app with one command.
-2. **A README** covering:
-   - any requirement you found ambiguous or contradictory, and what you decided;
-   - how state is organised: what lives where, and who is allowed to change it;
-   - how the host and the pages talk to each other: the messages, and what happens when one side is slow, gone, or replaced;
-   - **"where this breaks"**: the cases you know your build gets wrong.
-3. **A 15-minute video** (Loom or any shareable link) explaining your code. We evaluate your system design calls mainly from this video, so talk through the *why*, not just the *what*.
-   - **2 min**: what you built and the main calls you made.
-   - **8 min**: walk through the code behind R1–R6, showing each part running. Cover your state model, the host ↔ page protocol, how you identify elements across re-renders and navigation, how the tree loads, and how failures are contained and reported.
-   - **3 min**: where it breaks, and what you'd change with another week.
-   - **2 min**: how you used AI, and where it got things wrong.
-
-You may study any public product, Figr included. If you do, say what you took and why it works.
-
-## Submitting
-
-Submit your repo, video and resume here: **https://join.figr.design/r/kdqVkj**
-
----
-
 # Figr Implementation & System Architecture
 
 ## 1. Quick Start
@@ -237,22 +69,163 @@ npm run build
 
 ---
 
-## 3. Cross-Origin `postMessage` Protocol & Lifecycle
+## 3. Core Evaluation Deliverables
 
-### Protocol Message Envelope
-Every message between host and page agent contains:
-* `figr: true` — Protocol marker ensuring other messages are ignored.
-* `type: string` — Typed command or event identifier.
-* `screenId: string` — Identifies which preview card owns this communication.
-* `sessionId: string` — Uniquely generated per page agent execution.
-* `requestId?: string` — Correlation ID for request-response pairings.
-* `version?: number` — Request generation / selection version counter.
-* `payload: any` — Typed payload.
+The Figr assignment brief requires explicit coverage of four core architectural questions:
+1. [Ambiguous or Contradictory Requirements & What We Decided](#31-ambiguous-or-contradictory-requirements--what-we-decided)
+2. [State Organization: What Lives Where, and Who is Allowed to Change It](#32-state-organization-what-lives-where-and-who-is-allowed-to-change-it)
+3. [Host ↔ Page Communication Protocol: Messages, and What Happens When Slow, Gone, or Replaced](#33-host--page-communication-protocol-messages-and-what-happens-when-slow-gone-or-replaced)
+4. ["Where This Breaks": The Cases Our Build Gets Wrong](#34-where-this-breaks-the-cases-our-build-gets-wrong)
 
-### Session Lifecycle & Origin Security
-1. **Dynamic Session ID**: Each time an iframe loads or navigates, `agent.js` initializes with a brand-new `sessionId = 'sess_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now()`.
-2. **Handshake**: The page agent posts `READY` upon startup. The host responds with `INIT` containing `screenId`, current `mode`, and existing selections. The agent locks onto `hostOrigin` from `event.origin` and drops messages from untrusted origins.
-3. **Session Invalidation**: When an iframe navigates (`NAVIGATION_START`, `pagehide`, or reload), the host immediately invalidates `currentSessionId`, resets that preview's selection and layers, and starts the 10-second connection timer. Any in-flight response from the older session is silently ignored.
+---
+
+### 3.1 Ambiguous or Contradictory Requirements & What We Decided
+
+#### 1. Unkeyed Elements vs. 404 Metadata (R5.1)
+* **The Ambiguity**: Requirement R5.1 states:
+  > *"An element with no data-key shows 'No details'. A 404 shows 'No details for this element'. A 404 is not an error."*
+  Does every selected element trigger a `GET /elements/:key` network call?
+* **Our Decision**:
+  - Standard HTML elements without a `data-key` (e.g. `<p>`, generic `<div>` wrappers, headings) bypass the backend API entirely and immediately display **`"No details"`**. This prevents thousands of useless 404 network requests.
+  - Only elements with a `data-key` attribute invoke `GET /elements/:key`. If the backend returns `404 Not Found` (meaning the key has no entry in `elements.json`), it cleanly renders **`"No details for this element"`** without registering a failure or reporting to `report()`.
+
+#### 2. Multi-Page (MPA) vs. Client-Side (SPA) Navigation (R3.8)
+* **The Ambiguity**: Requirement R3.8 specifies:
+  > *"A page navigates (a link followed in Interact mode): that preview's selection clears, Select mode works on the new page with no reload of the board, and the layers panel shows the new page."*
+  The kit provides static HTML files (`page-6.html` linking to `page-6-next.html`), but modern web apps frequently use client-side SPA routing (`history.pushState`, `history.replaceState`, `popstate`, `hashchange`).
+* **Our Decision**:
+  - We implemented comprehensive support for **both MPA and SPA navigations**.
+  - In `agent.js`, we hook traditional navigation (`beforeunload`, `pagehide`, `pageshow`) as well as wrapping `history.pushState`, `history.replaceState`, and listening to `popstate` and `hashchange`.
+  - In both scenarios, the agent notifies the host with `NAVIGATION_START`, invalidates the current session ID, resets the preview's selection and layers tree, and initiates a clean session handshake on the new page.
+
+#### 3. Active Preview Definition vs. Hovering
+* **The Ambiguity**: The brief defines an active preview as *"the preview the user last clicked in Select mode."* What should happen when hovering an element on a preview that is not currently active?
+* **Our Decision**:
+  - Hovering is strictly board-wide and ephemeral. Hovering an element in Preview B while Preview A is active draws the hover outline on Preview B, but does **not** change `activeScreenId`.
+  - The Layers Panel and Inspector remain focused on the active preview until the user explicitly clicks Preview B in Select mode.
+  - Clicking empty board space clears the selection, but preserves `activeScreenId` so the user does not lose their place in the Layers tree.
+
+#### 4. Zoom-Independent Outlines & Labels (R3.4)
+* **The Ambiguity**: Outlines must stay 1px (hover) and 2px (selection) and labels must keep the same size at all board zoom levels (25% to 400%).
+* **Our Decision**:
+  - Rather than rendering outlines inside the iframe (which would break if the page has `overflow: hidden`, transforms, or strict CSS), the host renders all outlines in `PreviewOverlay` on top of each iframe.
+  - We apply zoom-inverse scaling: `borderWidth = Math.max(1, 2 / scale)` and label `transform = scale(${1 / scale})`. This guarantees crisp, constant screen-pixel borders and legible typography from 25% to 400% zoom.
+
+---
+
+### 3.2 State Organization: What Lives Where, and Who is Allowed to Change It
+
+To prevent state synchronization bugs and race conditions, the application follows strict unidirectional state ownership:
+
+| Domain | Store / Module | State Owned | Who Mutates It |
+|---|---|---|---|
+| **Board Viewport** | `boardStore` | `panX`, `panY`, `scale`, `mode` (`select` \| `interact`), `activeScreenId` | Toolbar controls, mouse drag/wheel on board, preview click activation |
+| **Selection & Geometry** | `selectionStore` | `selectedItems`, `hoveredItem`, `geometryCache`, `selectionVersion`, `isMissingSelected` | Click events from preview, keyboard shortcuts, scroll/mutation geometry updates from agent |
+| **Layers Tree** | `layersStore` | `screens[screenId]` (`nodes`, `rootIds`, `expandedIds`, `loadingIds`, `failedIds`, `scrollPos`, versions) | `GET_ROOT` and `GET_CHILDREN` responses, panel expansion/collapse, search filtering |
+| **Inspector** | `inspectorStore` | `liveInfo`, `multiLive`, `multiCount`, `details`, `detailsError`, `details404`, `activeVersion` | `LIVE_INFO` messages from agent, `GET /elements/:key` API calls |
+| **Failures & Errors** | `errorStore` & `errorService` | Region errors (`board`, `preview`, `layers`, `layers-row`, `details`, `inspector`), synthetic failure flags | Catch handlers, connection timeouts, dev failure triggers |
+
+#### State Mutation Rules
+1. **The Page Agent Never Mutates Host State Directly**: The agent is purely an observer and actuator. It measures DOM elements and dispatches typed `postMessage` events. Only host store actions commit state changes.
+2. **Components Never Mutate Stores Directly**: React components consume state via fine-grained Zustand selectors and trigger mutations exclusively through store action methods.
+3. **Session Guards on Every Store Action**: Any incoming message carrying an outdated `sessionId` or mismatched `selectionVersion` is rejected before touching the stores.
+
+---
+
+### 3.3 Host ↔ Page Communication Protocol: Messages, and What Happens When Slow, Gone, or Replaced
+
+All cross-origin communication between the host (`http://localhost:5173`) and preview pages (`http://localhost:4001`) occurs over `window.postMessage`.
+
+#### Protocol Message Envelope
+```typescript
+interface FigrMessage<T = any> {
+  figr: true;              // Protocol marker to filter out third-party messages
+  type: string;            // Message identifier (e.g. 'READY', 'SELECT', 'GET_ROOT')
+  screenId: string;        // ID of the target/source preview card
+  sessionId: string;       // Unique ID per iframe execution: sess_<random>_<timestamp>
+  requestId?: string;      // Correlation ID for request-response pairs
+  version?: number;        // Selection or request version counter
+  payload: T;              // Strongly-typed payload
+}
+```
+
+#### Core Protocol Message Dictionary
+* `READY`: Page agent notifies host that it has initialized and is listening.
+* `INIT`: Host sends `screenId`, current `mode`, and existing selections to the agent.
+* `HOVER`: Agent notifies host of element hover geometry, or null when cleared.
+* `SELECT`: Agent notifies host of user click with element geometry and selector.
+* `SET_MODE`: Host instructs agent to switch between `select` and `interact`.
+* `GET_ROOT` / `ROOT_DATA`: Host requests the body's top-level child nodes.
+* `GET_CHILDREN` / `CHILDREN`: Host lazily requests children for an expanded tree row.
+* `SCROLL_TO`: Host instructs agent to smoothly scroll a specific element into view.
+* `SYNC_GEOMETRY`: Agent pushes updated coordinates on scroll, resize, or DOM mutation.
+* `ELEMENT_MISSING`: Agent informs host that a selected element was removed from the DOM.
+* `PAGE_ERROR`: Agent captures runtime iframe JS errors and forwards them to host.
+* `NAVIGATION_START`: Agent informs host of an impending navigation or page unload.
+
+---
+
+#### What Happens When One Side is Slow, Gone, or Replaced?
+
+#### 1. When One Side is SLOW
+* **Slow Preview Page Connection**:
+  - When a preview iframe mounts or navigates, the host starts a **10-second connection timer**.
+  - If the page agent does not respond with `READY` within 10 seconds (e.g., hanging server or network timeout), the host marks that preview as failed.
+  - An isolated `"Couldn't connect to this preview"` overlay with a **Retry** button renders over that preview card only. The rest of the board remains fully operational.
+  - The failure is logged to `report()` **exactly once**.
+* **Slow Layer Node Expansion (3-second limit)**:
+  - When expanding a row in the Layers panel, the host starts a **3-second request timer**.
+  - While waiting, the row displays a loading spinner.
+  - If the agent fails to answer within 3 seconds, the row transitions to `"Couldn't load"` with an inline **Retry** button on that row only.
+  - Rapid collapsing and re-expanding cancels prior timers and increments the row request version, preventing missing or duplicate children.
+* **Slow Details API (`GET /elements/:key`)**:
+  - The Details section uses `AbortController`.
+  - If the user selects another element before the previous details request finishes, the in-flight request is aborted immediately. Stale responses are discarded via `selectionVersion` checks.
+
+#### 2. When One Side is GONE
+* **Iframe Navigates or Crashes**:
+  - On `beforeunload` or `pagehide`, the agent dispatches `NAVIGATION_START`.
+  - The host immediately invalidates `currentSessionId` by setting it to `null`.
+  - Any subsequent message carrying the dead `sessionId` is silently dropped.
+  - The preview's selection and layers tree are cleared, and the 10-second connection timer starts anew.
+* **Selected Element is Deleted From the DOM**:
+  - The agent's `MutationObserver` checks whether selected elements still exist.
+  - If an element is removed, the resolver returns `null` and dispatches `ELEMENT_MISSING`.
+  - The host marks the item as missing and updates the Inspector to display **`"This element no longer exists"`** until a new selection is made.
+* **Host Unmounts or Reloads**:
+  - The page agent's listeners are passive and wrapped in try-catch guards. If the parent window is closed or unresponsive, postMessage safely fails without crashing the iframe.
+
+#### 3. When One Side is REPLACED
+* **Iframe Navigates to a New Page (e.g. `page-6.html` → `page-6-next.html`)**:
+  - When the new document loads, `agent.js` generates a brand-new `sessionId` (`sess_<random>_<timestamp>`).
+  - The agent sends `READY` with the new session ID.
+  - The host establishes a new handshake, fetches the new document's root layer nodes, and ensures zero state pollution from the old page.
+* **DOM Rebuild (`innerHTML` replacement)**:
+  - When a page replaces DOM nodes dynamically (as in `page-4.html`'s dynamic activity feed), the agent uses its **multi-tier identity strategy** to match the reconstructed element by anchor, tag, and text content rather than relying on stale DOM object references.
+
+---
+
+### 3.4 "Where This Breaks": The Cases Our Build Gets Wrong
+
+In accordance with the assignment requirements, here are the edge cases where our implementation reaches its boundaries:
+
+#### 1. Completely Identical Unkeyed Dynamic Sibling Nodes
+* **Exact Scenario**: A dynamic list contains multiple unkeyed siblings that share identical tags, identical CSS classes, identical attributes, and identical (or empty) text content (e.g., five identical skeleton placeholders `<div class="skeleton-card"></div>` inside a feed). An element is selected, and new identical placeholders are dynamically prepended or removed during a DOM rebuild.
+* **Current Behavior**: The identity resolver relies on the relative ordinal index under the nearest anchor. When identical siblings change position, if the count or relative position shifts, the resolver returns `null` (marking the element as missing) rather than risking jumping to the wrong node.
+* **Why it Happens**: Without `data-key`, unique IDs, or distinct text content, the DOM contains no semantic information to distinguish identical sibling nodes after a complete teardown and reconstruction.
+* **Proposed Fix**: In user code, adopt `data-key` or unique IDs on list items. In the inspection agent, if write permission is permitted, attach an ephemeral non-enumerable tracking symbol or session attribute (`data-figr-track`) to DOM nodes upon initial selection.
+
+#### 2. Cross-Origin Framing Restrictions (Strict CSP / X-Frame-Options)
+* **Exact Scenario**: Pointing a preview card to an external URL that serves `Content-Security-Policy: frame-ancestors 'none'` or `X-Frame-Options: DENY`.
+* **Current Behavior**: The browser refuses to frame the document in an `<iframe>`. The page agent cannot execute, and after 10 seconds the preview enters the `"Couldn't connect to this preview"` error region with a Retry button.
+* **Why it Happens**: Browser-enforced security policies explicitly forbid third-party iframe embedding when frame protection headers are present.
+* **Proposed Fix**: Route external URLs through a local development proxy that strips framing restrictions and injects the `agent.js` script tag, or use a companion browser extension.
+
+#### 3. Encapsulated Elements Inside Closed Shadow DOM
+* **Exact Scenario**: A preview page utilizing Web Components where elements are inside a Shadow Root created with `attachShadow({ mode: 'closed' })`.
+* **Current Behavior**: The host inspector can select and measure the custom element host itself, but cannot reach inside to select individual internal shadow DOM elements.
+* **Why it Happens**: The browser's `closed` shadow DOM standard deliberately prevents external scripts (including `document.elementsFromPoint` and `querySelector`) from traversing or querying the shadow root.
+* **Proposed Fix**: Use `mode: 'open'` for custom components in dev environments, or monkey-patch `Element.prototype.attachShadow` in `agent.js` prior to component initialization to retain a weak reference to all shadow roots.
 
 ---
 
@@ -276,19 +249,7 @@ The assignment specifies:
 
 ---
 
-## 5. State Ownership & Architecture Boundaries
-
-| Domain | Store / Module | State Owned | Who Mutates It |
-|---|---|---|---|
-| **Board Viewport** | `boardStore` | `panX`, `panY`, `scale`, `mode` (`select` \| `interact`), `activeScreenId` | User toolbar, board drag/wheel, preview activation |
-| **Selection & Geometry** | `selectionStore` | `selectedItems`, `hoveredItem`, `geometryCache`, `selectionVersion`, `isMissingSelected` | Click events from preview, keyboard shortcuts, scroll/mutation geometry updates |
-| **Layers Tree** | `layersStore` | `screens[screenId]` (`nodes`, `rootIds`, `expandedIds`, `loadingIds`, `failedIds`, `scrollPos`, versions) | `GET_ROOT`, `CHILDREN` responses, panel expansion, search filter |
-| **Inspector** | `inspectorStore` | `liveInfo`, `multiLive`, `multiCount`, `details`, `detailsError`, `details404`, `activeVersion` | `LIVE_INFO` messages, `GET /elements/:key` API calls |
-| **Failures & Errors** | `errorStore` & `errorService` | Region errors (`board`, `preview`, `layers`, `layers-row`, `details`, `inspector`), synthetic failure flags | Catch handlers, connection timeouts, dev failure triggers |
-
----
-
-## 6. Failure Isolation & Exactly-Once Reporting
+## 5. Failure Isolation & Exactly-Once Reporting
 
 ### 6 Isolated Regions
 1. **`board`**: Screens API failure displays a full-board recovery banner.
@@ -308,7 +269,7 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 
 ---
 
-## 7. Requirement Checklist (R1.1 – R6.7)
+## 6. Requirement Verification Matrix (R1.1 – R6.7)
 
 | Req ID | Requirement Summary | Status | Notes & Verification |
 |---|---|---|---|
@@ -341,7 +302,7 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 | **R4.9** | Expansion state and panel scroll position remembered per preview | **Implemented & Tested** | Preserved in `layersStore.screens[screenId]`. |
 | **R4.10** | DOM mutations update tree and preserve expanded/selection states | **Implemented & Tested** | MutationObserver subtree sync. |
 | **R4.11** | Full-tree search restores exact normal expansion on clear | **Implemented & Tested** | Verified with unloaded nodes; ancestors materialized; exact expansion state restored on clear. |
-| **R5.1** | Single select: Live section + Details section (`GET /elements/:key`, 404 valid) | **Implemented & Tested** | Live properties displayed; 404 handled gracefully. |
+| **R5.1** | Single select: Live section + Details section (`GET /elements/:key`, 404 valid) | **Implemented & Tested** | Live properties computed from DOM; keyed elements fetch component details; unkeyed elements display "No details"; 404s display "No details for this element" without error. |
 | **R5.2** | Multi-select: "N elements" and shared vs "Mixed", no Details | **Implemented & Tested** | Verified in `raceConditions.test.ts`. |
 | **R5.3** | Selection versioning discards stale Details and Live responses | **Implemented & Tested** | Verified in `raceConditions.test.ts`. |
 | **R6.1** | 6 isolated regions | **Implemented & Tested** | Region isolation verified. |
@@ -354,36 +315,58 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 
 ---
 
-## 8. Where This Breaks (Known Limitations & Edge Cases)
+## 7. AI Collaboration & Corrections
 
-### 1. Completely Identical Unkeyed Sibling Nodes
-* **Exact scenario**: A dynamic list containing multiple unkeyed siblings that share identical tags, identical CSS classes, identical attributes, and identical (or empty) text content (e.g., 5 identical skeleton placeholders `<div class="skeleton-card"></div>` under a feed container). An element is selected, and then new identical items are prepended/removed while rebuilding the container DOM.
-* **Current behavior**: The identity resolver relies on the relative ordinal index under the nearest anchor. When identical siblings change position, if the count or relative position shifts, the resolver returns `null` (marking the element as missing) rather than jumping to an unintended node.
-* **Why it happens**: Without `data-key`, unique IDs, distinct text snippets, or distinctive attributes, the DOM contains no semantic information to distinguish identical sibling nodes after a complete teardown and reconstruction.
-* **Proposed fix**: In user code, adopt `data-key` or stable IDs on list items. In the inspection agent, if write permission is permitted, attach an ephemeral non-enumerable tracking symbol or session attribute (`data-figr-track`) to DOM nodes upon initial selection.
-
-### 2. Cross-Origin Framing Restrictions (Strict CSP / X-Frame-Options)
-* **Exact scenario**: Pointing a preview card to an external URL that serves `Content-Security-Policy: frame-ancestors 'none'` or `X-Frame-Options: DENY`.
-* **Current behavior**: The browser refuses to frame the document in an `<iframe>`. The page agent cannot execute, and after 10 seconds the preview enters the `"Couldn't connect to this preview"` error region with a Retry button.
-* **Why it happens**: Browser-enforced security policies explicitly forbid third-party iframe embedding when frame protection headers are present.
-* **Proposed fix**: Route external URLs through a local development proxy that strips framing restrictions and injects the `agent.js` script tag, or use a companion browser extension.
-
-### 3. Encapsulated Elements Inside Closed Shadow DOM
-* **Exact scenario**: A preview page utilizing Web Components where elements are inside a Shadow Root created with `attachShadow({ mode: 'closed' })`.
-* **Current behavior**: The host inspector can select and measure the custom element host itself, but cannot reach inside to select individual internal shadow DOM elements.
-* **Why it happens**: The browser's `closed` shadow DOM standard deliberately prevents external scripts (including `document.elementsFromPoint` and `querySelector`) from traversing or querying the shadow root.
-* **Proposed fix**: Use `mode: 'open'` for custom components in dev environments, or monkey-patch `Element.prototype.attachShadow` in `agent.js` prior to component initialization to retain a weak reference to all shadow roots.
+- **Where AI Accelerated Development**: Rapid scaffolding of TypeScript interfaces, Zustand slice templates, and comprehensive Vitest test suites.
+- **Where AI Had to Be Corrected**:
+  - *Anchored Identity Parsing*: Early AI regex treated any locator starting with `id:` or `key:` as a direct lookup, breaking anchored paths such as `id:feed > li[text="..."]`. This was caught during unit testing and corrected with `&& !raw.includes(' > ')`.
+  - *React Render Depth in Layers & Inspector*: Early AI code caused unnecessary re-renders in `LayersPanel` and `InspectorPanel` due to unmemoized array filters in hook dependencies. These were restructured using fine-grained Zustand selectors, `useMemo`, and event-driven scroll handlers.
+  - *Unloaded Node Search Materialization*: Initial search design only returned matching element IDs, which could not render in the host if intermediate ancestors were collapsed and unloaded. Corrected by having `searchEntireTree` materialize all ancestor `TreeNode` hierarchies so deep search results render properly even from a fully collapsed tree.
 
 ---
 
-## 9. AI Usage & Decisions
+## 8. Video Presentation & Walkthrough Guide (15-Minute Rubric Breakdown)
 
-- **Architectural Clarifications & Decisions**:
-  - *Active Preview Definition*: Hovering alone never changes `activeScreenId`. Clicking an element in a preview activates that preview, which immediately shifts the Layers panel and Inspector to that preview. Clicking empty board clears the selection but does not clear `activeScreenId`, allowing the user to continue browsing the active preview's layer tree.
-  - *Constant-Size Overlays*: Rather than drawing outlines inside the iframe (which would interfere with iframe styles and layout), the host draws all outlines in `PreviewOverlay`. Border widths (`Math.max(1, 2 / scale)`) and label scales (`1 / scale`) compensate for board zoom, ensuring crisp 1px/2px outlines and readable labels at any magnification.
-- **Where AI Had to Be Corrected**:
-  - *Anchored Identity Parsing*: Early agent regex treated any locator starting with `id:` or `key:` as a direct lookup, breaking anchored paths such as `id:feed > li[text="..."]`. This was caught during unit testing and fixed with `&& !raw.includes(' > ')`.
-  - *React Render Depth in Layers & Inspector*: The initial implementation caused re-renders in `LayersPanel` and `InspectorPanel` due to unmemoized array filters in hook dependencies. These were restructured using fine-grained Zustand selectors, `useMemo`, and event-driven scroll handlers.
-  - *Unloaded Node Search Materialization*: Initial search design only returned matching element IDs, which could not render in the host if intermediate ancestors were collapsed and unloaded. Corrected by having `searchEntireTree` materialize all ancestor `TreeNode` hierarchies so deep search results render properly even from a fully collapsed tree.
+Use this structured script when recording your 15-minute or concise video submission:
+
+### Part 1: Architecture Overview & Main Decisions (2 min)
+- **High-Level Design**: Explain that the host (`:5173`) coordinates 24 cross-origin iframes (`:4001`) via a typed `postMessage` protocol and an injected in-page inspection agent (`agent.js`).
+- **Isolation & Security**: Point out that the host never assumes synchronous access to iframe DOMs. All communication uses unique session IDs (`sessionId`), preventing race conditions and stale frames during page reloads or navigation.
+- **State Partitioning**: Briefly show the 5 dedicated Zustand stores (`boardStore`, `selectionStore`, `layersStore`, `inspectorStore`, `errorStore`), ensuring modularity and isolated rendering.
+
+### Part 2: Feature Walkthrough Across Requirements R1–R6 (8 min)
+1. **R1: Board & Navigation**:
+   - Pan across the 24 preview cards.
+   - Demonstrate pointer-centered zooming (`Ctrl/Cmd + wheel`, or zoom buttons `+`/`-`).
+   - Toggle between **Select mode (`V`)** and **Interact mode (`I`)**.
+2. **R2 & R3: Inspection & Resilient Selection**:
+   - Hover over elements to show the 1px purple hover outline and name pills.
+   - Click the **"Get started"** button on Screen 7 to show the 2px blue selection outline.
+   - Demonstrate **Multi-Selection** by holding `Shift` and selecting multiple elements.
+   - Demonstrate **Keyboard Navigation**: `Enter` (first child), `Shift+Enter` (parent), and `Tab` / `Shift+Tab` (cycling siblings).
+   - Demonstrate **DOM Rebuild Survival**: Show that selecting an item on Screen 4 remains selected even after dynamic feed updates.
+   - Demonstrate **Page Navigation**: Switch to Interact mode on Screen 6, click `"Next: Configuration →"`, and show that the layers panel and inspector update seamlessly for the new page.
+3. **R4: Bidirectional Layers Tree**:
+   - Show lazy loading with chevrons and loading spinners.
+   - Hover a row in the Layers panel to highlight the element on the canvas; hover an element on canvas to highlight the tree row.
+   - Type in the search box to filter the tree across all nodes, and clear the search to prove that the exact previous expansion state is restored.
+4. **R5: Inspector Panel (Live vs. Details)**:
+   - Select the `"Get started"` button (`data-key="cta-primary"`): show live computed box model styles alongside metadata fetched from `GET /elements/cta-primary` (`Button`, `stable`, `Growth`).
+   - Select an unkeyed element (e.g. `<p>`): show that it displays `"No details"`.
+   - Multi-select multiple items: show that the inspector cleanly shifts to the multi-select summary.
+5. **R6: Fault Tolerance & Dev Failure Menu**:
+   - Open the **Dev Failure Menu** in the toolbar.
+   - Simulate a `500 Server Error` on Details API: demonstrate that only the Details section shows an error box with a **Retry** button while live properties continue working.
+   - Show that errors inside iframes generate a subtle "Page error" badge without crashing the host app.
+
+### Part 3: Where This Breaks & What to Change With Another Week (3 min)
+- **Identical Unkeyed Dynamic Siblings**: Explain the limitation where identical unkeyed siblings change position without semantic IDs or text differences. Explain how introducing `data-figr-track` or persistent DOM symbols solves it.
+- **Closed Shadow DOM & Cross-Origin CSP**: Discuss browser boundaries around `closed` shadow roots and `frame-ancestors: 'none'`, and how a local dev proxy or browser extension would address production constraints.
+- **Future Improvements**: Virtualized canvas rendering for hundreds of previews, side-by-side responsive viewport testing, and CSS diff inspection.
+
+### Part 4: AI Collaboration & Reflection (2 min)
+- **Where AI accelerated development**: Fast generation of test harnesses, TypeScript interface definitions, and state stores.
+- **Where AI required engineering correction**: Anchored path resolution in agent identity locators, tree search materialization, and React render depth optimization.
+
 
 
