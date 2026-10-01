@@ -101,7 +101,7 @@ export const DetailsSection: React.FC<Props> = ({
 
       {!elementKey ? (
         <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-          No details (no data-key)
+          No details
         </div>
       ) : loadingDetails ? (
         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
