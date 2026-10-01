@@ -197,11 +197,11 @@ export const LayersPanel: React.FC = () => {
       if (!data || data.figr !== true) return;
 
       if (data.type === 'SEARCH_RESULTS' && activeScreenId && data.screenId === activeScreenId) {
-        const { matches } = data.payload;
+        const { matches, materializedNodes } = data.payload;
         if (matches && Array.isArray(matches)) {
           const matchIds = matches.map((m: any) => m.id);
           const ancestorIds = matches.flatMap((m: any) => m.ancestors || []);
-          setSearch(activeScreenId, searchQuery, matchIds, ancestorIds);
+          setSearch(activeScreenId, searchQuery, matchIds, ancestorIds, materializedNodes);
         }
       }
     };
@@ -359,7 +359,19 @@ export const LayersPanel: React.FC = () => {
   const renderTreeNodes = (nodeIds: string[], depth = 0): React.ReactNode => {
     if (!currentLayers) return null;
 
+    const isSearchActive = Boolean(searchQuery.trim() && currentLayers.searchMatchingIds);
+    const visibleSearchSet = isSearchActive
+      ? new Set([
+          ...(currentLayers.searchMatchingIds || []),
+          ...(currentLayers.searchAncestorIds || []),
+        ])
+      : null;
+
     return nodeIds.map((id) => {
+      if (visibleSearchSet && !visibleSearchSet.has(id)) {
+        return null;
+      }
+
       const node = currentLayers.nodes[id];
       if (!node) return null;
 

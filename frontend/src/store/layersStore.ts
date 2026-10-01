@@ -31,7 +31,8 @@ interface LayersState {
     screenId: string,
     query: string,
     matchingIds: string[],
-    ancestorIds: string[]
+    ancestorIds: string[],
+    materializedNodes?: TreeNode[]
   ) => void;
   clearSearch: (screenId: string) => void;
 
@@ -282,10 +283,30 @@ export const useLayersStore = create<LayersState>((set, get) => ({
     });
   },
 
-  setSearch: (screenId, _query, matchingIds, ancestorIds) => {
+  setSearch: (screenId, _query, matchingIds, ancestorIds, materializedNodes) => {
     set((s) => {
       const screen = s.screens[screenId];
       if (!screen) return s;
+
+      const nextNodes = { ...screen.nodes };
+      if (materializedNodes && materializedNodes.length > 0) {
+        for (const node of materializedNodes) {
+          nextNodes[node.id] = {
+            ...node,
+            children: nextNodes[node.id]?.children || node.children,
+          };
+          if (node.parentId && nextNodes[node.parentId]) {
+            const parentChildren = nextNodes[node.parentId].children || [];
+            if (!parentChildren.includes(node.id)) {
+              nextNodes[node.parentId] = {
+                ...nextNodes[node.parentId],
+                children: [...parentChildren, node.id],
+                hasChildren: true,
+              };
+            }
+          }
+        }
+      }
 
       // Preserve normal expansion state before first search
       const normalExpanded = screen.normalExpandedIds || screen.expandedIds;
@@ -296,8 +317,11 @@ export const useLayersStore = create<LayersState>((set, get) => ({
           ...s.screens,
           [screenId]: {
             ...screen,
+            nodes: nextNodes,
             normalExpandedIds: normalExpanded,
             searchExpandedIds: combinedToExpand,
+            searchMatchingIds: matchingIds,
+            searchAncestorIds: ancestorIds,
             expandedIds: combinedToExpand,
           },
         },
@@ -321,6 +345,8 @@ export const useLayersStore = create<LayersState>((set, get) => ({
             expandedIds: restoredExpanded,
             normalExpandedIds: undefined,
             searchExpandedIds: undefined,
+            searchMatchingIds: undefined,
+            searchAncestorIds: undefined,
           },
         },
       };

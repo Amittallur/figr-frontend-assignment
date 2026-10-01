@@ -18,6 +18,8 @@ export interface ScreenLayers {
   failedIds: string[];
   scrollPos: number;
   searchExpandedIds?: string[];
+  searchMatchingIds?: string[];
+  searchAncestorIds?: string[];
   normalExpandedIds?: string[];
   nodeVersions: Record<string, number>;
 }

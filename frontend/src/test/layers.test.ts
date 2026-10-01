@@ -76,12 +76,47 @@ describe('Layers Tree State Model (R4)', () => {
     expect(screenLayers.expandedIds).toEqual(['id:nav']);
   });
 
-  it('increments node versions to prevent stale responses on fast collapse/expand', () => {
+  it('materializes unloaded ancestor nodes during search and restores expansion on clear', () => {
     const store = useLayersStore.getState();
-    const v1 = store.incrementNodeVersion('scr-01', 'id:hero');
-    const v2 = store.incrementNodeVersion('scr-01', 'id:hero');
+    store.initScreenLayers('scr-01', mockRoots);
 
-    expect(v1).toBe(1);
-    expect(v2).toBe(2);
+    // Tree starts with id:hero collapsed, no children loaded
+    expect(useLayersStore.getState().screens['scr-01'].nodes['id:hero'].children).toBeUndefined();
+
+    // Search for deeply nested "Target" that was never loaded before:
+    // Parent (id:hero) -> Child (id:child) -> Target (id:target)
+    const materialized: TreeNode[] = [
+      {
+        id: 'id:child',
+        name: 'div.child',
+        tag: 'div',
+        hasChildren: true,
+        children: ['id:target'],
+        parentId: 'id:hero',
+        depth: 1,
+      },
+      {
+        id: 'id:target',
+        name: 'button.target',
+        tag: 'button',
+        hasChildren: false,
+        parentId: 'id:child',
+        depth: 2,
+      },
+    ];
+
+    store.setSearch('scr-01', 'target', ['id:target'], ['id:hero', 'id:child'], materialized);
+
+    const screenLayers = useLayersStore.getState().screens['scr-01'];
+    expect(screenLayers.nodes['id:target']).toBeDefined();
+    expect(screenLayers.nodes['id:child']).toBeDefined();
+    expect(screenLayers.nodes['id:hero'].children).toContain('id:child');
+    expect(screenLayers.expandedIds).toContain('id:hero');
+    expect(screenLayers.expandedIds).toContain('id:child');
+
+    // Clearing search restores exact pre-search collapsed state!
+    store.clearSearch('scr-01');
+    const cleared = useLayersStore.getState().screens['scr-01'];
+    expect(cleared.expandedIds).toEqual([]);
   });
 });

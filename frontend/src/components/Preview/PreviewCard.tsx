@@ -377,6 +377,7 @@ export const PreviewCard: React.FC<Props> = ({ screen }) => {
         }
 
         case 'NAVIGATION_START': {
+          currentSessionId.current = null;
           useSelectionStore.getState().clearPreviewSelection(screen.id);
           useLayersStore.getState().resetScreenLayers(screen.id);
           setIsConnected(false);

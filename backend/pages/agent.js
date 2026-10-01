@@ -5,7 +5,7 @@
   if (window.__FIGR_AGENT_LOADED__) return;
   window.__FIGR_AGENT_LOADED__ = true;
 
-  const sessionId = 'sess_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
+  let sessionId = 'sess_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
   let screenId = null;
   let hostOrigin = null; // Discovered on INIT or initial handshake
   let currentMode = 'select'; // 'select' | 'interact'
@@ -290,21 +290,62 @@
   }
 
   function searchEntireTree(query) {
-    if (!query || !query.trim()) return [];
+    if (!query || !query.trim()) return { matches: [], materializedNodes: [] };
     const q = query.toLowerCase().trim();
-    const results = [];
+    const matches = [];
+    const nodeMap = new Map();
 
-    function walk(el) {
+    function recordNode(el, parentId, depth) {
+      const id = getElementIdentity(el);
+      if (!id) return null;
+      if (!nodeMap.has(id)) {
+        const childInspectable = Array.from(el.children).filter(isInspectableElement);
+        nodeMap.set(id, {
+          id,
+          name: getElementName(el),
+          tag: el.tagName.toLowerCase(),
+          dataKey: el.getAttribute('data-key') || undefined,
+          hasChildren: childInspectable.length > 0,
+          children: childInspectable.map(getElementIdentity).filter(Boolean),
+          parentId,
+          depth,
+        });
+      }
+      return id;
+    }
+
+    function walk(el, parentId, depth) {
       if (!isInspectableElement(el)) return;
       const name = getElementName(el).toLowerCase();
       const tag = el.tagName.toLowerCase();
       const idStr = el.id ? el.id.toLowerCase() : '';
       const text = (el.innerText || el.textContent || '').slice(0, 80).toLowerCase();
 
-      if (name.includes(q) || tag.includes(q) || idStr.includes(q) || text.includes(q)) {
+      const isMatch = name.includes(q) || tag.includes(q) || idStr.includes(q) || text.includes(q);
+
+      if (isMatch) {
         const id = getElementIdentity(el);
-        const ancestors = getAncestorChain(id);
-        results.push({
+        const ancestors = [];
+        let curr = el.parentElement;
+        const chain = [];
+        while (curr && curr !== document.body && curr !== document.documentElement) {
+          if (isInspectableElement(curr)) {
+            chain.unshift(curr);
+          }
+          curr = curr.parentElement;
+        }
+
+        let pId = null;
+        let d = 0;
+        for (let ancEl of chain) {
+          const ancId = recordNode(ancEl, pId, d);
+          ancestors.push(ancId);
+          pId = ancId;
+          d++;
+        }
+
+        recordNode(el, pId, d);
+        matches.push({
           id,
           name: getElementName(el),
           tag,
@@ -313,14 +354,18 @@
       }
 
       for (let child of el.children) {
-        walk(child);
+        walk(child, getElementIdentity(el), depth + 1);
       }
     }
 
     for (let bodyChild of document.body.children) {
-      walk(bodyChild);
+      walk(bodyChild, null, 0);
     }
-    return results;
+
+    return {
+      matches,
+      materializedNodes: Array.from(nodeMap.values()),
+    };
   }
 
   // --- Keyboard Navigation in Tree ---
@@ -644,7 +689,60 @@
     });
   }
 
-  // --- Navigation Detection ---
+  // --- Navigation Detection (Full Page, SPA History, bfcache) ---
+  function handleNavigationChange(newUrl) {
+    postToHost('NAVIGATION_START', { url: newUrl || window.location.href });
+    // Invalidate old session and generate brand new session ID
+    sessionId = 'sess_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
+    lastHoveredIdentity = null;
+    trackedSelectedIdentities = [];
+
+    // Announce new session READY to host
+    setTimeout(() => {
+      postToHost('READY', {
+        url: window.location.href,
+        pathname: window.location.pathname,
+      });
+    }, 10);
+  }
+
+  // Intercept history.pushState and history.replaceState
+  try {
+    const origPushState = history.pushState;
+    if (typeof origPushState === 'function') {
+      history.pushState = function (...args) {
+        const res = origPushState.apply(this, args);
+        handleNavigationChange(window.location.href);
+        return res;
+      };
+    }
+
+    const origReplaceState = history.replaceState;
+    if (typeof origReplaceState === 'function') {
+      history.replaceState = function (...args) {
+        const res = origReplaceState.apply(this, args);
+        handleNavigationChange(window.location.href);
+        return res;
+      };
+    }
+  } catch (err) {
+    console.warn('[Page Agent] Failed to wrap history state', err);
+  }
+
+  window.addEventListener('popstate', () => {
+    handleNavigationChange(window.location.href);
+  });
+
+  window.addEventListener('hashchange', () => {
+    handleNavigationChange(window.location.href);
+  });
+
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) {
+      handleNavigationChange(window.location.href);
+    }
+  });
+
   window.addEventListener('beforeunload', () => {
     postToHost('NAVIGATION_START', { url: window.location.href });
   });
@@ -764,8 +862,17 @@
       }
 
       case 'SEARCH_TREE': {
-        const matches = searchEntireTree(payload.query);
-        postToHost('SEARCH_RESULTS', { query: payload.query, matches }, requestId, version);
+        const searchRes = searchEntireTree(payload.query);
+        postToHost(
+          'SEARCH_RESULTS',
+          {
+            query: payload.query,
+            matches: searchRes.matches,
+            materializedNodes: searchRes.materializedNodes,
+          },
+          requestId,
+          version
+        );
         break;
       }
 

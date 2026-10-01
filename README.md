@@ -329,7 +329,7 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 | **R3.5** | Keyboard nav on most recent selection: Enter (child), Shift+Enter (parent), Tab/Shift+Tab (wrapping siblings) | **Implemented & Tested** | Implemented via tree traversal in `agent.js` and keyboard shortcuts. |
 | **R3.6** | Shortcuts work after clicking inside preview | **Implemented & Tested** | Keydown events captured in agent and forwarded to host. |
 | **R3.7** | Survives DOM rebuilds & sibling insertion; deletion marks missing; never jumps | **Implemented & Tested** | Verified in `elementIdentity.test.ts` (page-4 scenarios). |
-| **R3.8** | Navigation clears preview selection, resets layers, awaits new session | **Implemented & Tested** | Detected via `beforeunload` / `pagehide`; new session handshake. |
+| **R3.8** | Navigation clears preview selection, resets layers, awaits new session | **Implemented & Tested** | Verified for normal `<a href>` links (`page-6.html` → `page-6-next.html`), `history.pushState`, `history.replaceState`, `popstate`, `hashchange`, and bfcache `pageshow`. Session invalidates immediately on navigation start; late messages discarded. |
 | **R4.1** | Layers shows active preview DOM tree; empty message when none | **Implemented & Tested** | Only displays tree for `activeScreenId`. |
 | **R4.2** | Row indentation, name, chevron for children; top-level are body children | **Implemented & Tested** | Clean tree representation in `LayerRow`. |
 | **R4.3** | Lazy loading on expand with 3s timeout -> "Couldn't load" with retry | **Implemented & Tested** | 3s timer with versioning and row retry. |
@@ -340,7 +340,7 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 | **R4.8** | Layers panel keyboard nav (Arrows) | **Implemented & Tested** | Up/down visible navigation, left/right collapse/expand. |
 | **R4.9** | Expansion state and panel scroll position remembered per preview | **Implemented & Tested** | Preserved in `layersStore.screens[screenId]`. |
 | **R4.10** | DOM mutations update tree and preserve expanded/selection states | **Implemented & Tested** | MutationObserver subtree sync. |
-| **R4.11** | Full-tree search restores exact normal expansion on clear | **Implemented & Tested** | Verified in `layers.test.ts`. |
+| **R4.11** | Full-tree search restores exact normal expansion on clear | **Implemented & Tested** | Verified with unloaded nodes; ancestors materialized; exact expansion state restored on clear. |
 | **R5.1** | Single select: Live section + Details section (`GET /elements/:key`, 404 valid) | **Implemented & Tested** | Live properties displayed; 404 handled gracefully. |
 | **R5.2** | Multi-select: "N elements" and shared vs "Mixed", no Details | **Implemented & Tested** | Verified in `raceConditions.test.ts`. |
 | **R5.3** | Selection versioning discards stale Details and Live responses | **Implemented & Tested** | Verified in `raceConditions.test.ts`. |
@@ -356,12 +356,23 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 
 ## 8. Where This Breaks (Known Limitations & Edge Cases)
 
-1. **Completely Identical Sibling Nodes without Keys or Distinctive Text**:
-   - If a page renders multiple unkeyed sibling elements that have identical tag names, identical CSS classes, identical attributes, identical child tree structures, and identical text snippets (e.g. 5 blank skeleton placeholders `<div></div>` under a container), our identity system relies on relative ordinal under the nearest anchor. If one of the preceding identical placeholders is dynamically removed or prepended, the ordinal shifts. Per the assignment instructions, our resolver prioritizes correctness: when ambiguity cannot be resolved with high confidence, it returns `null` (marking the element as missing) rather than jumping to an unintended node.
-2. **Third-Party Origins with Restrictive CSP or Frame-Ancestors**:
-   - The Figr inspection model requires embedding `agent.js` inside the preview page to measure geometry and intercept pointer events. If an arbitrary external website enforces `Content-Security-Policy: frame-ancestors 'none'` or blocks script injection, the preview cannot be framed or inspected without a server-side proxy or browser extension.
-3. **Closed Shadow DOM Boundaries**:
-   - If an element is encapsulated within an `attachShadow({ mode: 'closed' })` boundary, standard DOM APIs (`document.elementsFromPoint`, querySelector) cannot pierce the closed shadow root. The page agent treats the custom element host itself as the inspectable target.
+### 1. Completely Identical Unkeyed Sibling Nodes
+* **Exact scenario**: A dynamic list containing multiple unkeyed siblings that share identical tags, identical CSS classes, identical attributes, and identical (or empty) text content (e.g., 5 identical skeleton placeholders `<div class="skeleton-card"></div>` under a feed container). An element is selected, and then new identical items are prepended/removed while rebuilding the container DOM.
+* **Current behavior**: The identity resolver relies on the relative ordinal index under the nearest anchor. When identical siblings change position, if the count or relative position shifts, the resolver returns `null` (marking the element as missing) rather than jumping to an unintended node.
+* **Why it happens**: Without `data-key`, unique IDs, distinct text snippets, or distinctive attributes, the DOM contains no semantic information to distinguish identical sibling nodes after a complete teardown and reconstruction.
+* **Proposed fix**: In user code, adopt `data-key` or stable IDs on list items. In the inspection agent, if write permission is permitted, attach an ephemeral non-enumerable tracking symbol or session attribute (`data-figr-track`) to DOM nodes upon initial selection.
+
+### 2. Cross-Origin Framing Restrictions (Strict CSP / X-Frame-Options)
+* **Exact scenario**: Pointing a preview card to an external URL that serves `Content-Security-Policy: frame-ancestors 'none'` or `X-Frame-Options: DENY`.
+* **Current behavior**: The browser refuses to frame the document in an `<iframe>`. The page agent cannot execute, and after 10 seconds the preview enters the `"Couldn't connect to this preview"` error region with a Retry button.
+* **Why it happens**: Browser-enforced security policies explicitly forbid third-party iframe embedding when frame protection headers are present.
+* **Proposed fix**: Route external URLs through a local development proxy that strips framing restrictions and injects the `agent.js` script tag, or use a companion browser extension.
+
+### 3. Encapsulated Elements Inside Closed Shadow DOM
+* **Exact scenario**: A preview page utilizing Web Components where elements are inside a Shadow Root created with `attachShadow({ mode: 'closed' })`.
+* **Current behavior**: The host inspector can select and measure the custom element host itself, but cannot reach inside to select individual internal shadow DOM elements.
+* **Why it happens**: The browser's `closed` shadow DOM standard deliberately prevents external scripts (including `document.elementsFromPoint` and `querySelector`) from traversing or querying the shadow root.
+* **Proposed fix**: Use `mode: 'open'` for custom components in dev environments, or monkey-patch `Element.prototype.attachShadow` in `agent.js` prior to component initialization to retain a weak reference to all shadow roots.
 
 ---
 
@@ -373,4 +384,6 @@ All errors flow through `handleFailure()` in `errorStore.ts` to `reportRegionFai
 - **Where AI Had to Be Corrected**:
   - *Anchored Identity Parsing*: Early agent regex treated any locator starting with `id:` or `key:` as a direct lookup, breaking anchored paths such as `id:feed > li[text="..."]`. This was caught during unit testing and fixed with `&& !raw.includes(' > ')`.
   - *React Render Depth in Layers & Inspector*: The initial implementation caused re-renders in `LayersPanel` and `InspectorPanel` due to unmemoized array filters in hook dependencies. These were restructured using fine-grained Zustand selectors, `useMemo`, and event-driven scroll handlers.
+  - *Unloaded Node Search Materialization*: Initial search design only returned matching element IDs, which could not render in the host if intermediate ancestors were collapsed and unloaded. Corrected by having `searchEntireTree` materialize all ancestor `TreeNode` hierarchies so deep search results render properly even from a fully collapsed tree.
+
 
